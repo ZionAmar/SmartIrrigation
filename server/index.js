@@ -8,6 +8,8 @@ app.use(express.json()); // תמיכה ב-JSON לבקשות
 app.use(cors()); // הפעלת CORS להרשאות בין-דומיינים
 app.use(morgan("dev")); // שימוש בלוגים באמצעות Morgan
 
+const esp = require('./routes/esp');
+app.use('/esp',esp);
 
 const port = 6060;
 app.use(express.json());
