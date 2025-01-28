@@ -2,52 +2,34 @@
 #include <WiFiClient.h>
 #include <HTTPClient.h>
 
-// WiFi credentials
-const char* ssid = "Amar";
-const char* password = "0549774827";
+const char* ssid = "Kinneret College";
 
-// Ensure client is accessible globally
 WiFiClient client;
 
-void wifiSetup() {
-  WiFi.begin(ssid, password);
+void WiFi_SETUP(){
+  WiFi.begin(ssid);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connected");
+  Serial.println("");
+  Serial.println("WiFi connected");
 }
 
-void sendData(const char* endpoint, int value) {
+void sendData(float temp, int linght, int moisture){
   HTTPClient http;
-  http.begin(client, endpoint);
-  http.addHeader("Content-Type", "application/json");
-  String jsonPayload = "{\"value\": " + String(value) + "}";
-  int httpResponseCode = http.POST(jsonPayload);
-
-  if (httpResponseCode > 0) {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpResponseCode);
-  } else {
-    Serial.print("Error sending data: ");
-    Serial.println(http.errorToString(httpResponseCode).c_str());
-  }
-  http.end();
-}
-
-void sendData(const char* endpoint, float value) {
-  HTTPClient http;
-  http.begin(client, endpoint);
-  http.addHeader("Content-Type", "application/json");
-  String jsonPayload = "{\"value\": " + String(value, 2) + "}";
-  int httpResponseCode = http.POST(jsonPayload);
-
-  if (httpResponseCode > 0) {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpResponseCode);
-  } else {
-    Serial.print("Error sending data: ");
-    Serial.println(http.errorToString(httpResponseCode).c_str());
-  }
-  http.end();
+  String dataUrl = "temp=" + String(temp);
+  dataUrl+= "&linght="+ String(linght);
+  dataUrl+= "&moisture="+ String(moisture);
+  http.begin(client, "http://10.9.1.10:3004/esp?");
+    Serial.println(dataUrl);
+   int httpCode = http.GET();
+   if(httpCode == HTTP_CODE_OK) {
+     Serial.print("HTTP response code ");
+     Serial.println(httpCode);
+     //String Res = http.getString();
+     //Serial.println(Res);
+     //ret = Res.toInt();
+    }
+    http.end();
 }
