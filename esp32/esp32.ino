@@ -1,3 +1,7 @@
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include <DHT.h>
 
 #define dhtPin 16
@@ -7,101 +11,108 @@ DHT dht(dhtPin, DHTTYPE);
 #define lightSensor 36
 #define MoistureSensor 39
 
-// משתני מצב
-enum PumpState { TEMP_CONTROL, MOISTURE_CONTROL, SHABBAT, MANUAL };
-PumpState currentState = MANUAL;
+// הגדרת מצבים עם DEFINE
+#define TEMP_CONTROL 1
+#define MOISTURE_CONTROL 2
+#define SHABBAT 3
+#define MANUAL 4
 
-// משתנים למצב טמפרטורה
-float desiredTemp = 25.0; // טמפרטורה רצויה
-int highTempDuration = 10; // זמן השקיה במעלות גבוהות (בדקות)
-int lowTempDuration = 5;   // זמן השקיה במעלות נמוכות (בדקות)
+int currentState = MANUAL; // ברירת מחדל למצב ידני
+unsigned long lastUpdate = 0; // משתנה למעקב אחרי הזמן
 
-// משתנים למצב לחות
-float desiredMoisture = 500; // ערך לחות רצויה
-float moistureTolerance = 50; // סבילות ±10%
+extern WiFiClient client; // משתמש ב-WiFiClient שהוגדר בקובץ אחר
 
-// משתנים למצב שבת
-int shabbatStartHour = 18;
-int shabbatStopHour = 22;
+// כתובת השרת לקבלת מצב
+const char* serverStateURL = "http://10.9.1.10:3004/state"; 
 
-// משתנה למצב ידני
+// ערכים קבועים
+const float desiredTemp = 25.0;
+const float desiredMoisture = 500;
+const int shabbatStartHour = 18, shabbatStopHour = 22;
 bool manualPumpOn = false;
-
-// משתנים כלליים
-unsigned long pumpStartTime = 0;
 bool isPumpRunning = false;
 
-// פונקציה להפעלת משאבה
+// פונקציה להפעלת המשאבה
 void controlPump(bool turnOn) {
-  if (turnOn) {
-    if (!isPumpRunning) {
-      Serial.println("Pump turned ON");
-      isPumpRunning = true;
-      pumpStartTime = millis();
-    }
-  } else {
-    if (isPumpRunning) {
-      Serial.println("Pump turned OFF");
-      isPumpRunning = false;
-    }
+  if (turnOn && !isPumpRunning) {
+    Serial.println("Pump ON");
+    isPumpRunning = true;
+  } else if (!turnOn && isPumpRunning) {
+    Serial.println("Pump OFF");
+    isPumpRunning = false;
   }
 }
 
-// פונקציה לניהול מצבים
+// פונקציה לקבלת מצב מהשרת כל 10 דקות
+void fetchStateFromServer() {
+  if (millis() - lastUpdate >= 600000) { // כל 10 דקות
+    lastUpdate = millis();
+    
+    Serial.println("Fetching state from server...");
+    
+    HTTPClient http;
+    http.begin(client, serverStateURL);
+    int httpResponseCode = http.GET();
+
+    if (httpResponseCode > 0) {
+      String payload = http.getString();
+      Serial.println("Response: " + payload);
+
+      StaticJsonDocument<200> doc;
+      DeserializationError error = deserializeJson(doc, payload);
+      
+      if (!error) {
+        currentState = doc["state"]; // שליפת מצב מה-JSON
+        Serial.print("Updated State: ");
+        Serial.println(currentState);
+      } else {
+        Serial.println("JSON parsing failed");
+      }
+    } else {
+      Serial.print("HTTP Error: ");
+      Serial.println(httpResponseCode);
+    }
+    http.end();
+  }
+}
+
+// ניהול מצבים
 void handleState(float temp, int moisture) {
   switch (currentState) {
-    case TEMP_CONTROL: {
-      int duration = (temp > desiredTemp) ? highTempDuration : lowTempDuration;
-      if (millis() - pumpStartTime >= duration * 60000) {
-        controlPump(false);
-      } else {
-        controlPump(true);
-      }
+    case TEMP_CONTROL:
+      controlPump(temp > desiredTemp);
       break;
-    }
     case MOISTURE_CONTROL:
-      if (moisture < desiredMoisture - moistureTolerance || moisture > desiredMoisture + moistureTolerance) {
-        controlPump(true);
-      } else {
-        controlPump(false);
-      }
+      controlPump(moisture < desiredMoisture);
       break;
     case SHABBAT: {
       struct tm timeinfo;
       if (getLocalTime(&timeinfo)) {
-        int hour = timeinfo.tm_hour;
-        if (hour >= shabbatStartHour && hour < shabbatStopHour) {
-          controlPump(true);
-        } else {
-          controlPump(false);
-        }
+        controlPump(timeinfo.tm_hour >= shabbatStartHour && timeinfo.tm_hour < shabbatStopHour);
       }
       break;
     }
     case MANUAL:
-      if (manualPumpOn) {
-        controlPump(true);
-      } else {
-        controlPump(false);
-      }
+      controlPump(manualPumpOn);
       break;
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  WiFi_SETUP(); // פונקציה קיימת שלא משנים
+  WiFi_SETUP(); // חיבור לרשת דרך הפונקציה הקיימת
   dht.begin();
 }
 
 void loop() {
+  fetchStateFromServer(); // עדכון מצב מהשרת
+
   // קריאת חיישנים
-  int light = analogRead(lightSensor);
-  int moisture = analogRead(MoistureSensor);
   float temp = dht.readTemperature();
+  int moisture = analogRead(MoistureSensor);
 
   // שליחת נתונים לשרת
-  sendData(temp, light, moisture); // פונקציה קיימת שלא משנים
+  sendData(temp, analogRead(lightSensor), moisture);
 
   // ניהול מצב המשאבה
   handleState(temp, moisture);
