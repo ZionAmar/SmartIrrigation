@@ -13,10 +13,11 @@ app.use(cors());
 app.use(morgan("dev"));
 
 const esp = require("./routes/esp");
+const state = require("./routes/state");
+
 app.use("/esp", esp);
+app.use("/state", state);
 
 app.listen(HTTP_PORT, () => {
-  console.log(
-    `The server is running on port: ${HTTP_PORT} \nlink: http://localhost:${HTTP_PORT}`
-  );
+  console.log(`Server running on http://localhost:${HTTP_PORT}`);
 });
